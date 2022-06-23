@@ -1,0 +1,76 @@
+- 
+  name: playbook1
+  hosts: webapp
+  vars: 
+    GIT_REPO: git@github.com:musatee/ecaredemo.git
+    GIT_BRANCH: master
+    PACKAGES: 
+      - apache2 
+      - php7.4 
+      - libapache2-mod-php7.4
+      - php7.4-curl
+      - php-pear
+      - php7.4-gd
+      - php7.4-dev
+      - php7.4-zip
+      - php7.4-mbstring
+      - php7.4-mysql
+      - php7.4-xml
+  become: true 
+  become_method: sudo 
+  tasks: 
+    - 
+      name: install apache & php
+      apt: 
+        update_cache: true 
+        name: "{{ item }}" 
+        state: present
+      with_items: "{{ PACKAGES }}" 
+    - 
+      name: composer installation 
+      script: ./composer_installation.sh 
+      register: status_check 
+    
+    - 
+      name: print failure message if upstream task fails 
+      fail: 
+        msg: "Composer installation failed" 
+      when: status_check.rc != 0
+    - 
+      name: copy ssh-key for git access
+      copy: 
+        src: ./id_rsa 
+        dest: /root/.ssh
+        mode: 0400 
+    - 
+      name: Cloning codebase from git repo
+      git:
+        repo: "{{ GIT_REPO }}"
+        version: "{{ GIT_BRANCH }}"
+        dest: "/var/www/{{ domain }}"
+        accept_hostkey: yes
+    -
+      name: setup laravel project 
+      script: post_installation.sh  {{dbhost}} {{dbname}} {{dbuser}} {{dbpass}} "/var/www/{{domain}}" 
+      register: exit_status
+    -
+      name: j2 templating 
+      template: 
+        src: vhost.j2 
+        dest: /etc/apache2/sites-available/000-default.conf 
+        force: true
+      notify: 
+        - restart_apache 
+        - success_message 
+      when: exit_status.rc == 0
+  
+  handlers:  
+    - 
+      name: restart_apache
+      service: 
+        name: apache2
+        state:  restarted 
+    -
+      name: success_message
+      debug: 
+        msg: You are all set !! 
